@@ -12,6 +12,27 @@ function normalizeHost(host) {
   return trimmed.replace(/^\*\./, "").replace(/^\./, "");
 }
 
+function resolveBlockedSite(host, blockedSites) {
+  const normalizedHost = normalizeHost(host);
+  if (!normalizedHost) {
+    return "";
+  }
+
+  const candidates = blockedSites
+    .map(normalizeHost)
+    .filter(Boolean)
+    .filter(
+      (site) =>
+        normalizedHost === site || normalizedHost.endsWith(`.${site}`)
+    );
+
+  if (!candidates.length) {
+    return normalizedHost;
+  }
+
+  return candidates.sort((a, b) => b.length - a.length)[0];
+}
+
 function ruleIdForHost(host) {
   let hash = 0;
   for (let i = 0; i < host.length; i += 1) {
@@ -69,7 +90,7 @@ function ensureDefaults(callback) {
   });
 }
 
-function applyDynamicRules() {
+function applyDynamicRules(onApplied) {
   chrome.storage.local.get(
     {
       blockedSites: DEFAULT_BLOCKED_SITES,
@@ -99,6 +120,10 @@ function applyDynamicRules() {
         chrome.declarativeNetRequest.updateDynamicRules({
           removeRuleIds,
           addRules,
+        }, () => {
+          if (typeof onApplied === "function") {
+            onApplied();
+          }
         });
       });
     }
@@ -121,20 +146,20 @@ function handleAlarmForHost(host) {
       chrome.storage.local.set(
         { allowUntilByHost, lastExpiredAtByHost },
         () => {
-          applyDynamicRules();
+          applyDynamicRules(() => {
+            chrome.tabs.query({}, (tabs) => {
+              tabs.forEach((tab) => {
+                if (!tab.id || !tab.url) {
+                  return;
+                }
+                if (urlMatchesHost(tab.url, host)) {
+                  chrome.tabs.reload(tab.id);
+                }
+              });
+            });
+          });
         }
       );
-
-      chrome.tabs.query({}, (tabs) => {
-        tabs.forEach((tab) => {
-          if (!tab.id || !tab.url) {
-            return;
-          }
-          if (urlMatchesHost(tab.url, host)) {
-            chrome.tabs.reload(tab.id);
-          }
-        });
-      });
     }
   );
 }
@@ -184,7 +209,13 @@ if (chrome.declarativeNetRequest.onRuleMatchedDebug) {
       host = "";
     }
 
-    setBlockedInfo(tabId, { url, host: normalizeHost(host) });
+    chrome.storage.local.get(
+      { blockedSites: DEFAULT_BLOCKED_SITES },
+      (data) => {
+        const blockedSite = resolveBlockedSite(host, data.blockedSites || []);
+        setBlockedInfo(tabId, { url, host: blockedSite });
+      }
+    );
   });
 }
 
@@ -245,8 +276,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         allowUntilByHost[host] = untilMs;
         chrome.storage.local.set({ allowUntilByHost }, () => {
           chrome.alarms.create(`${ALARM_PREFIX}${host}`, { when: untilMs });
-          applyDynamicRules();
-          sendResponse({ ok: true, untilMs, redirectUrl: info?.url || "" });
+          applyDynamicRules(() => {
+            sendResponse({ ok: true, untilMs, redirectUrl: info?.url || "" });
+          });
         });
       }
     );
