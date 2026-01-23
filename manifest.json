@@ -3,8 +3,17 @@
   "name": "Instagram Blocker",
   "version": "1.0.0",
   "description": "Blocks instagram.com and shows a blocked page.",
-  "permissions": ["declarativeNetRequest"],
+  "permissions": [
+    "alarms",
+    "declarativeNetRequest",
+    "declarativeNetRequestFeedback",
+    "storage",
+    "tabs"
+  ],
   "host_permissions": ["*://*.instagram.com/*", "*://instagram.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "declarative_net_request": {
     "rule_resources": [
       {
