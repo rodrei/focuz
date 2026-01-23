@@ -8,8 +8,6 @@ const IN_DURATION_MS = 10000;
 const OUT_DURATION_MS = 10000;
 const TOTAL_MS = IN_DURATION_MS + OUT_DURATION_MS;
 
-const storage = chrome.storage?.local;
-
 function showBlocked() {
   breathSection.classList.add("hidden");
   blockedSection.classList.remove("hidden");
@@ -30,19 +28,23 @@ function runBreathing() {
   }, TOTAL_MS);
 }
 
-if (storage) {
-  storage.get({ lastExpiredAt: 0 }, (data) => {
-    if (data.lastExpiredAt) {
+function init() {
+  if (!chrome.runtime?.sendMessage) {
+    runBreathing();
+    return;
+  }
+
+  chrome.runtime.sendMessage({ type: "GET_CONTEXT" }, (response) => {
+    if (response?.timeup) {
       showTimeup();
-      storage.set({ lastExpiredAt: 0 });
       return;
     }
 
     runBreathing();
   });
-} else {
-  runBreathing();
 }
+
+init();
 
 buttons.forEach((button) => {
   button.addEventListener("click", () => {
@@ -51,14 +53,17 @@ buttons.forEach((button) => {
       return;
     }
 
-    chrome.runtime.sendMessage({
-      type: "ALLOW_TEMP",
-      minutes,
-    }, (response) => {
-      const redirectUrl = response?.redirectUrl;
-      if (redirectUrl) {
-        window.location.href = redirectUrl;
+    chrome.runtime.sendMessage(
+      {
+        type: "ALLOW_TEMP",
+        minutes,
+      },
+      (response) => {
+        const redirectUrl = response?.redirectUrl;
+        if (redirectUrl) {
+          window.location.href = redirectUrl;
+        }
       }
-    });
+    );
   });
 });

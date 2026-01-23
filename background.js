@@ -1,88 +1,221 @@
-const RULESET_ID = "block_instagram";
-const ALARM_NAME = "instagram_allow_until";
-const BLOCKED_URL_PREFIX = "blockedUrl:";
+const DEFAULT_BLOCKED_SITES = ["instagram.com"];
+const ALARM_PREFIX = "allow_until:";
+const BLOCKED_INFO_PREFIX = "blockedInfo:";
 const sessionStorage = chrome.storage.session ?? chrome.storage.local;
 
-function setRulesetEnabled(enabled) {
-  const update = enabled
-    ? { enableRulesetIds: [RULESET_ID] }
-    : { disableRulesetIds: [RULESET_ID] };
-
-  chrome.declarativeNetRequest.updateEnabledRulesets(update);
-}
-
-function scheduleAllowUntil(untilMs) {
-  chrome.alarms.create(ALARM_NAME, { when: untilMs });
-  chrome.storage.local.set({ allowUntil: untilMs, lastExpiredAt: 0 });
-}
-
-function applyAllowanceState() {
-  chrome.storage.local.get({ allowUntil: 0 }, (data) => {
-    const now = Date.now();
-    if (data.allowUntil && data.allowUntil > now) {
-      setRulesetEnabled(false);
-      chrome.alarms.create(ALARM_NAME, { when: data.allowUntil });
-    } else {
-      setRulesetEnabled(true);
-      chrome.storage.local.set({ allowUntil: 0 });
-    }
-  });
-}
-
-function setBlockedUrl(tabId, url) {
-  sessionStorage.set({ [`${BLOCKED_URL_PREFIX}${tabId}`]: url });
-}
-
-function getBlockedUrl(tabId, callback) {
-  const key = `${BLOCKED_URL_PREFIX}${tabId}`;
-  sessionStorage.get({ [key]: "" }, (data) => {
-    callback(data[key] || "");
-  });
-}
-
-chrome.runtime.onInstalled.addListener(() => {
-  applyAllowanceState();
-});
-
-chrome.runtime.onStartup.addListener(() => {
-  applyAllowanceState();
-});
-
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name !== ALARM_NAME) {
-    return;
+function normalizeHost(host) {
+  const trimmed = host.trim().toLowerCase();
+  if (!trimmed) {
+    return "";
   }
 
-  setRulesetEnabled(true);
-  chrome.storage.local.set({ allowUntil: 0, lastExpiredAt: Date.now() });
-  chrome.tabs.query(
-    { url: ["*://*.instagram.com/*", "*://instagram.com/*"] },
-    (tabs) => {
-      tabs.forEach((tab) => {
-        if (tab.id !== undefined) {
-          chrome.tabs.reload(tab.id);
+  return trimmed.replace(/^\*\./, "").replace(/^\./, "");
+}
+
+function ruleIdForHost(host) {
+  let hash = 0;
+  for (let i = 0; i < host.length; i += 1) {
+    hash = (hash * 31 + host.charCodeAt(i)) >>> 0;
+  }
+  return (hash % 2147483646) + 1;
+}
+
+function buildRule(host) {
+  return {
+    id: ruleIdForHost(host),
+    priority: 1,
+    action: {
+      type: "redirect",
+      redirect: {
+        extensionPath: "/blocked.html",
+      },
+    },
+    condition: {
+      urlFilter: `||${host}/`,
+      resourceTypes: ["main_frame"],
+    },
+  };
+}
+
+function urlMatchesHost(url, host) {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname === host || parsed.hostname.endsWith(`.${host}`);
+  } catch (error) {
+    return false;
+  }
+}
+
+function setBlockedInfo(tabId, info) {
+  sessionStorage.set({ [`${BLOCKED_INFO_PREFIX}${tabId}`]: info });
+}
+
+function getBlockedInfo(tabId, callback) {
+  const key = `${BLOCKED_INFO_PREFIX}${tabId}`;
+  sessionStorage.get({ [key]: null }, (data) => {
+    callback(data[key] || null);
+  });
+}
+
+function ensureDefaults(callback) {
+  chrome.storage.local.get({ blockedSites: null }, (data) => {
+    if (!data.blockedSites) {
+      chrome.storage.local.set({ blockedSites: DEFAULT_BLOCKED_SITES }, () =>
+        callback()
+      );
+      return;
+    }
+    callback();
+  });
+}
+
+function applyDynamicRules() {
+  chrome.storage.local.get(
+    {
+      blockedSites: DEFAULT_BLOCKED_SITES,
+      allowUntilByHost: {},
+    },
+    (data) => {
+      const now = Date.now();
+      const allowUntilByHost = { ...data.allowUntilByHost };
+      const activeHosts = data.blockedSites
+        .map(normalizeHost)
+        .filter(Boolean)
+        .filter((host) => !(allowUntilByHost[host] && allowUntilByHost[host] > now));
+
+      Object.entries(allowUntilByHost).forEach(([host, until]) => {
+        if (until <= now) {
+          delete allowUntilByHost[host];
+        } else {
+          chrome.alarms.create(`${ALARM_PREFIX}${host}`, { when: until });
         }
+      });
+
+      chrome.storage.local.set({ allowUntilByHost });
+
+      chrome.declarativeNetRequest.getDynamicRules((existing) => {
+        const removeRuleIds = existing.map((rule) => rule.id);
+        const addRules = activeHosts.map(buildRule);
+        chrome.declarativeNetRequest.updateDynamicRules({
+          removeRuleIds,
+          addRules,
+        });
       });
     }
   );
+}
+
+function handleAlarmForHost(host) {
+  chrome.storage.local.get(
+    {
+      blockedSites: DEFAULT_BLOCKED_SITES,
+      allowUntilByHost: {},
+      lastExpiredAtByHost: {},
+    },
+    (data) => {
+      const allowUntilByHost = { ...data.allowUntilByHost };
+      const lastExpiredAtByHost = { ...data.lastExpiredAtByHost };
+      delete allowUntilByHost[host];
+      lastExpiredAtByHost[host] = Date.now();
+
+      chrome.storage.local.set(
+        { allowUntilByHost, lastExpiredAtByHost },
+        () => {
+          applyDynamicRules();
+        }
+      );
+
+      chrome.tabs.query({}, (tabs) => {
+        tabs.forEach((tab) => {
+          if (!tab.id || !tab.url) {
+            return;
+          }
+          if (urlMatchesHost(tab.url, host)) {
+            chrome.tabs.reload(tab.id);
+          }
+        });
+      });
+    }
+  );
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  ensureDefaults(applyDynamicRules);
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  ensureDefaults(applyDynamicRules);
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") {
+    return;
+  }
+  if (changes.blockedSites) {
+    applyDynamicRules();
+  }
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (!alarm.name.startsWith(ALARM_PREFIX)) {
+    return;
+  }
+
+  const host = alarm.name.slice(ALARM_PREFIX.length);
+  if (!host) {
+    return;
+  }
+
+  handleAlarmForHost(host);
 });
 
 if (chrome.declarativeNetRequest.onRuleMatchedDebug) {
   chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((info) => {
-    if (info?.rule?.ruleId !== 1) {
-      return;
-    }
-
     const tabId = info.request?.tabId;
-    if (typeof tabId !== "number" || tabId < 0) {
+    const url = info.request?.url;
+    if (typeof tabId !== "number" || tabId < 0 || !url) {
       return;
     }
 
-    setBlockedUrl(tabId, info.request.url);
+    let host = "";
+    try {
+      host = new URL(url).hostname;
+    } catch (error) {
+      host = "";
+    }
+
+    setBlockedInfo(tabId, { url, host: normalizeHost(host) });
   });
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "GET_CONTEXT") {
+    const tabId = sender?.tab?.id;
+    if (typeof tabId !== "number") {
+      sendResponse({ blockedUrl: "", host: "", timeup: false });
+      return;
+    }
+
+    getBlockedInfo(tabId, (info) => {
+      const host = normalizeHost(info?.host || "");
+      chrome.storage.local.get({ lastExpiredAtByHost: {} }, (data) => {
+        const lastExpiredAtByHost = { ...data.lastExpiredAtByHost };
+        const timeup = Boolean(host && lastExpiredAtByHost[host]);
+        if (timeup) {
+          delete lastExpiredAtByHost[host];
+          chrome.storage.local.set({ lastExpiredAtByHost });
+        }
+        sendResponse({
+          blockedUrl: info?.url || "",
+          host,
+          timeup,
+        });
+      });
+    });
+
+    return true;
+  }
+
   if (message?.type !== "ALLOW_TEMP") {
     return;
   }
@@ -92,17 +225,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  const untilMs = Date.now() + minutes * 60 * 1000;
-  setRulesetEnabled(false);
-  scheduleAllowUntil(untilMs);
-
   const tabId = sender?.tab?.id;
-  if (typeof tabId === "number") {
-    getBlockedUrl(tabId, (redirectUrl) => {
-      sendResponse({ ok: true, untilMs, redirectUrl });
-    });
-    return true;
+  if (typeof tabId !== "number") {
+    return;
   }
 
-  sendResponse({ ok: true, untilMs });
+  getBlockedInfo(tabId, (info) => {
+    const host = normalizeHost(info?.host || "");
+    if (!host) {
+      sendResponse({ ok: false });
+      return;
+    }
+
+    const untilMs = Date.now() + minutes * 60 * 1000;
+    chrome.storage.local.get(
+      { allowUntilByHost: {}, lastExpiredAtByHost: {} },
+      (data) => {
+        const allowUntilByHost = { ...data.allowUntilByHost };
+        allowUntilByHost[host] = untilMs;
+        chrome.storage.local.set({ allowUntilByHost }, () => {
+          chrome.alarms.create(`${ALARM_PREFIX}${host}`, { when: untilMs });
+          applyDynamicRules();
+          sendResponse({ ok: true, untilMs, redirectUrl: info?.url || "" });
+        });
+      }
+    );
+  });
+
+  return true;
 });

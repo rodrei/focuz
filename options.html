@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Blocked Sites</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <h1>Blocked sites</h1>
+        <p>Add or remove sites that should be blocked.</p>
+      </header>
+      <section class="controls">
+        <label class="field">
+          <span>Site</span>
+          <input
+            id="site-input"
+            type="text"
+            placeholder="example.com"
+            autocomplete="off"
+          />
+        </label>
+        <button id="add-site" type="button">Add site</button>
+      </section>
+      <p id="status" class="status" aria-live="polite"></p>
+      <ul id="site-list" class="site-list" role="list"></ul>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
