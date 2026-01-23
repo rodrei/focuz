@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Instagram Blocker",
+  "name": "Focuz",
   "version": "1.0.0",
-  "description": "Blocks instagram.com and shows a blocked page.",
+  "description": "Blocks distracting websites so you can go do things that matter.",
   "permissions": [
     "alarms",
     "declarativeNetRequest",
@@ -15,7 +15,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Instagram Blocker"
+    "default_title": "Focuz"
   },
   "options_page": "options.html",
   "web_accessible_resources": [
