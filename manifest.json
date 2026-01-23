@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Instagram Blocker",
+  "version": "1.0.0",
+  "description": "Blocks instagram.com and shows a blocked page.",
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": ["*://*.instagram.com/*", "*://instagram.com/*"],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "block_instagram",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
+  "action": {
+    "default_title": "Instagram Blocker"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["blocked.html", "blocked.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
