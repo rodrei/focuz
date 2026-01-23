@@ -3,6 +3,7 @@ const blockedSection = document.getElementById("blocked");
 const timeupSection = document.getElementById("timeup");
 const breathSection = document.querySelector(".breath");
 const buttons = document.querySelectorAll("button[data-minutes]");
+const blockedSite = document.getElementById("blocked-site");
 
 const IN_DURATION_MS = 10000;
 const OUT_DURATION_MS = 10000;
@@ -35,6 +36,10 @@ function init() {
   }
 
   chrome.runtime.sendMessage({ type: "GET_CONTEXT" }, (response) => {
+    if (response?.host) {
+      blockedSite.textContent = response.host;
+    }
+
     if (response?.timeup) {
       showTimeup();
       return;
