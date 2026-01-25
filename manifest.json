@@ -25,6 +25,13 @@
     "128": "icon.png"
   },
   "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["*://www.youtube.com/", "*://youtube.com/"],
+      "js": ["youtube-feed.js"],
+      "run_at": "document_start"
+    }
+  ],
   "web_accessible_resources": [
     {
       "resources": ["blocked.html", "blocked.css"],
