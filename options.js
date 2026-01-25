@@ -2,6 +2,7 @@ const siteInput = document.getElementById("site-input");
 const addButton = document.getElementById("add-site");
 const siteList = document.getElementById("site-list");
 const status = document.getElementById("status");
+const blockYoutubeToggle = document.getElementById("block-youtube-feed");
 
 const DEFAULT_BLOCKED_SITES = ["instagram.com"];
 
@@ -106,10 +107,18 @@ siteInput.addEventListener("keydown", (event) => {
   }
 });
 
+blockYoutubeToggle.addEventListener("change", () => {
+  chrome.storage.local.set({ blockYoutubeFeed: blockYoutubeToggle.checked });
+});
+
 loadSites((sites) => {
   if (!sites.length) {
     saveSites(DEFAULT_BLOCKED_SITES);
     return;
   }
   renderSites(sites);
+});
+
+chrome.storage.local.get({ blockYoutubeFeed: false }, (data) => {
+  blockYoutubeToggle.checked = Boolean(data.blockYoutubeFeed);
 });
