@@ -30,6 +30,11 @@
       "matches": ["*://www.youtube.com/", "*://youtube.com/"],
       "js": ["youtube-feed.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["overlay-timer.js"],
+      "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
