@@ -5,8 +5,8 @@ const breathSection = document.querySelector(".breath");
 const buttons = document.querySelectorAll("button[data-minutes]");
 const blockedSite = document.getElementById("blocked-site");
 
-const IN_DURATION_MS = 10000;
-const OUT_DURATION_MS = 10000;
+const IN_DURATION_MS = 5000;
+const OUT_DURATION_MS = 5000;
 const TOTAL_MS = IN_DURATION_MS + OUT_DURATION_MS;
 
 function showBlocked() {
