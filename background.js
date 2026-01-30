@@ -1,7 +1,5 @@
 const DEFAULT_BLOCKED_SITES = ["instagram.com"];
 const ALARM_PREFIX = "allow_until:";
-const BLOCKED_INFO_PREFIX = "blockedInfo:";
-const sessionStorage = chrome.storage.session ?? chrome.storage.local;
 
 function normalizeHost(host) {
   const trimmed = host.trim().toLowerCase();
@@ -66,17 +64,6 @@ function urlMatchesHost(url, host) {
   } catch (error) {
     return false;
   }
-}
-
-function setBlockedInfo(tabId, info) {
-  sessionStorage.set({ [`${BLOCKED_INFO_PREFIX}${tabId}`]: info });
-}
-
-function getBlockedInfo(tabId, callback) {
-  const key = `${BLOCKED_INFO_PREFIX}${tabId}`;
-  sessionStorage.get({ [key]: null }, (data) => {
-    callback(data[key] || null);
-  });
 }
 
 function ensureDefaults(callback) {
@@ -195,31 +182,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   handleAlarmForHost(host);
 });
 
-if (chrome.declarativeNetRequest.onRuleMatchedDebug) {
-  chrome.declarativeNetRequest.onRuleMatchedDebug.addListener((info) => {
-    const tabId = info.request?.tabId;
-    const url = info.request?.url;
-    if (typeof tabId !== "number" || tabId < 0 || !url) {
-      return;
-    }
-
-    let host = "";
-    try {
-      host = new URL(url).hostname;
-    } catch (error) {
-      host = "";
-    }
-
-    chrome.storage.local.get(
-      { blockedSites: DEFAULT_BLOCKED_SITES },
-      (data) => {
-        const blockedSite = resolveBlockedSite(host, data.blockedSites || []);
-        setBlockedInfo(tabId, { url, host: blockedSite });
-      }
-    );
-  });
-}
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "GET_CONTEXT") {
     const directUrl = typeof message.blockedUrl === "string" ? message.blockedUrl : "";
@@ -257,10 +219,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         respondWithHost(directUrl, normalizeHost(resolved));
       });
     } else {
-      getBlockedInfo(tabId, (info) => {
-        const host = normalizeHost(info?.host || "");
-        respondWithHost(info?.url || "", host);
-      });
+      respondWithHost("", "");
     }
 
     return true;
@@ -315,10 +274,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       finalizeAllow(directUrl, normalizeHost(resolved));
     });
   } else {
-    getBlockedInfo(tabId, (info) => {
-      const host = normalizeHost(info?.host || "");
-      finalizeAllow(info?.url || "", host);
-    });
+    finalizeAllow("", "");
   }
 
   return true;
