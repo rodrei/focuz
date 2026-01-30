@@ -47,7 +47,7 @@ function buildRule(host) {
     action: {
       type: "redirect",
       redirect: {
-        regexSubstitution: `chrome-extension://${chrome.runtime.id}/blocked.html#$1`,
+        regexSubstitution: `chrome-extension://${chrome.runtime.id}/blocked.html#\\1`,
       },
     },
     condition: {
