@@ -4,6 +4,19 @@ const timeupSection = document.getElementById("timeup");
 const breathSection = document.querySelector(".breath");
 const buttons = document.querySelectorAll("button[data-minutes]");
 const blockedSite = document.getElementById("blocked-site");
+const fallbackUrl = (() => {
+  const params = new URLSearchParams(window.location.search);
+  const queryUrl = params.get("u");
+  if (queryUrl && queryUrl.startsWith("http")) {
+    return queryUrl;
+  }
+
+  if (!window.location.hash) {
+    return "";
+  }
+  const candidate = window.location.hash.slice(1);
+  return candidate.startsWith("http") ? candidate : "";
+})();
 
 const IN_DURATION_MS = 5000;
 const OUT_DURATION_MS = 5000;
@@ -35,7 +48,9 @@ function init() {
     return;
   }
 
-  chrome.runtime.sendMessage({ type: "GET_CONTEXT" }, (response) => {
+  chrome.runtime.sendMessage(
+    { type: "GET_CONTEXT", blockedUrl: fallbackUrl },
+    (response) => {
     if (response?.host) {
       blockedSite.textContent = response.host;
     }
@@ -45,8 +60,9 @@ function init() {
       return;
     }
 
-    runBreathing();
-  });
+      runBreathing();
+    }
+  );
 }
 
 init();
@@ -62,6 +78,7 @@ buttons.forEach((button) => {
       {
         type: "ALLOW_TEMP",
         minutes,
+        blockedUrl: fallbackUrl,
       },
       (response) => {
         const redirectUrl = response?.redirectUrl;

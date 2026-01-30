@@ -42,17 +42,18 @@ function ruleIdForHost(host) {
 }
 
 function buildRule(host) {
+  const escapedHost = host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return {
     id: ruleIdForHost(host),
     priority: 1,
     action: {
       type: "redirect",
       redirect: {
-        extensionPath: "/blocked.html",
+        regexSubstitution: `chrome-extension://${chrome.runtime.id}/blocked.html#$1`,
       },
     },
     condition: {
-      urlFilter: `||${host}/`,
+      regexFilter: `^(https?://(?:[^/]+\\.)?${escapedHost}(?::\\d+)?(?:/.*)?)$`,
       resourceTypes: ["main_frame"],
     },
   };
@@ -221,14 +222,14 @@ if (chrome.declarativeNetRequest.onRuleMatchedDebug) {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "GET_CONTEXT") {
+    const directUrl = typeof message.blockedUrl === "string" ? message.blockedUrl : "";
     const tabId = sender?.tab?.id;
     if (typeof tabId !== "number") {
       sendResponse({ blockedUrl: "", host: "", timeup: false });
       return;
     }
 
-    getBlockedInfo(tabId, (info) => {
-      const host = normalizeHost(info?.host || "");
+    const respondWithHost = (blockedUrl, host) => {
       chrome.storage.local.get({ lastExpiredAtByHost: {} }, (data) => {
         const lastExpiredAtByHost = { ...data.lastExpiredAtByHost };
         const timeup = Boolean(host && lastExpiredAtByHost[host]);
@@ -237,12 +238,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           chrome.storage.local.set({ lastExpiredAtByHost });
         }
         sendResponse({
-          blockedUrl: info?.url || "",
+          blockedUrl,
           host,
           timeup,
         });
       });
-    });
+    };
+
+    if (directUrl) {
+      chrome.storage.local.get({ blockedSites: DEFAULT_BLOCKED_SITES }, (data) => {
+        let host = "";
+        try {
+          host = new URL(directUrl).hostname;
+        } catch (error) {
+          host = "";
+        }
+        const resolved = resolveBlockedSite(host, data.blockedSites || []);
+        respondWithHost(directUrl, normalizeHost(resolved));
+      });
+    } else {
+      getBlockedInfo(tabId, (info) => {
+        const host = normalizeHost(info?.host || "");
+        respondWithHost(info?.url || "", host);
+      });
+    }
 
     return true;
   }
@@ -256,13 +275,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  const directUrl = typeof message.blockedUrl === "string" ? message.blockedUrl : "";
   const tabId = sender?.tab?.id;
   if (typeof tabId !== "number") {
     return;
   }
 
-  getBlockedInfo(tabId, (info) => {
-    const host = normalizeHost(info?.host || "");
+  const finalizeAllow = (blockedUrl, host) => {
     if (!host) {
       sendResponse({ ok: false });
       return;
@@ -277,12 +296,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.storage.local.set({ allowUntilByHost }, () => {
           chrome.alarms.create(`${ALARM_PREFIX}${host}`, { when: untilMs });
           applyDynamicRules(() => {
-            sendResponse({ ok: true, untilMs, redirectUrl: info?.url || "" });
+            sendResponse({ ok: true, untilMs, redirectUrl: blockedUrl });
           });
         });
       }
     );
-  });
+  };
+
+  if (directUrl) {
+    chrome.storage.local.get({ blockedSites: DEFAULT_BLOCKED_SITES }, (data) => {
+      let host = "";
+      try {
+        host = new URL(directUrl).hostname;
+      } catch (error) {
+        host = "";
+      }
+      const resolved = resolveBlockedSite(host, data.blockedSites || []);
+      finalizeAllow(directUrl, normalizeHost(resolved));
+    });
+  } else {
+    getBlockedInfo(tabId, (info) => {
+      const host = normalizeHost(info?.host || "");
+      finalizeAllow(info?.url || "", host);
+    });
+  }
 
   return true;
 });
