@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Focuz",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Blocks distracting websites so you can go do things that matter.",
   "permissions": [
     "alarms",
